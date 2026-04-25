@@ -2,64 +2,35 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import os from "node:os";
-
-const configDir = path.join(os.homedir(), ".config", "jot");
-const configPath = path.join(configDir, "settings.json");
-
-function loadConfig() {
-  try {
-    return JSON.parse(fs.readFileSync(configPath, "utf8"));
-  } catch {
-    return { instances: [] };
-  }
-}
-
-function saveConfig(config) {
-  fs.mkdirSync(configDir, { recursive: true });
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n", "utf8");
-}
+import {
+  loadConfig,
+  saveConfig,
+  getInstance as _getInstance,
+  request as _request,
+  isShareInstance,
+  configPath,
+} from "./lib.mjs";
 
 function getInstance(name) {
-  const config = loadConfig();
-  const instance = config.instances.find((i) => i.name === name);
-  if (!instance) {
-    console.error(`Unknown instance: ${name}`);
-    console.error(`Run: jot register <name> <baseUrl> <token>`);
-    process.exit(1);
+  try {
+    return _getInstance(name);
+  } catch (e) {
+    if (e.code === "UNKNOWN_INSTANCE") {
+      console.error(`Unknown instance: ${name}`);
+      console.error(`Run: jot register <name> <baseUrl> <token>`);
+      process.exit(1);
+    }
+    throw e;
   }
-  return instance;
 }
 
 async function request(instance, method, endpoint, body) {
-  const url = `${instance.baseUrl.replace(/\/$/, "")}${endpoint}`;
-  const options = {
-    method,
-    headers: {},
-  };
-
-  if (instance.token) {
-    options.headers.Authorization = `Bearer ${instance.token}`;
-  }
-
-  if (body !== undefined) {
-    options.headers["Content-Type"] = "application/json";
-    options.body = JSON.stringify(body);
-  }
-
-  const response = await fetch(url, options);
-  const payload = await response.json();
-
-  if (!response.ok) {
-    console.error(`Error ${response.status}: ${payload.error || payload.errors?.join(", ") || "Request failed"}`);
+  try {
+    return await _request(instance, method, endpoint, body);
+  } catch (e) {
+    console.error(e.message);
     process.exit(1);
   }
-
-  return payload;
-}
-
-function isShareInstance(instance) {
-  return Boolean(instance.shareId && !instance.token);
 }
 
 const args = process.argv.slice(2);
