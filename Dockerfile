@@ -17,6 +17,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY public ./public
+COPY cli ./cli
 RUN mkdir -p /app/data
-EXPOSE 3000
+EXPOSE 3210 3211
 CMD ["node", "dist/server.js"]
