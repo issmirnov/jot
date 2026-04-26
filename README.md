@@ -95,6 +95,72 @@ jot shared reply <thread-id> <message-id> "reply" --name="My Agent"
 
 Click the robot icon in the editor or on a shared note to get copy-paste CLI instructions. The instructions are pre-filled with the instance URL and note ID. Hand them to your agent and it can read, edit, and comment on the note.
 
+## MCP server
+
+`jot mcp` runs a Model Context Protocol server over stdio so any MCP-capable client (Claude Code, Claude Desktop, Cursor, Continue) can manage your notes through structured tool calls.
+
+### Setup
+
+Register a jot instance first if you haven't:
+
+```bash
+jot register myserver https://jot.example.com <api-key>
+```
+
+Then add to your client's MCP config. Claude Desktop example (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+
+```json
+{
+  "mcpServers": {
+    "jot": {
+      "command": "npx",
+      "args": ["-y", "@mariozechner/jot", "mcp"],
+      "env": { "JOT_INSTANCE": "myserver" }
+    }
+  }
+}
+```
+
+If you're running from a local clone (e.g. testing an unpublished branch), point at the CLI directly:
+
+```json
+{
+  "mcpServers": {
+    "jot": {
+      "command": "node",
+      "args": ["/absolute/path/to/jot/cli/jot.mjs", "mcp"],
+      "env": { "JOT_INSTANCE": "myserver" }
+    }
+  }
+}
+```
+
+For multiple jot instances, register multiple MCP servers (`jot-personal`, `jot-work`, etc.) each with its own `JOT_INSTANCE`. Share-link instances are not supported by the MCP server in v1 — register an owner instance with an API key.
+
+### Tools
+
+| Tool | Purpose |
+|---|---|
+| `list_notes` | List notes (id, title, updatedAt, shareId, snippet) |
+| `read_note(id)` | Read full markdown + threads. Records the note version for stale-read protection. |
+| `create_note(title, markdown)` | Create a note in one call. |
+| `update_note(id, {title?, markdown?, shareAccess?})` | Partial update — server merges only the fields you pass. |
+| `edit_note(id, edits[])` | Apply `[{oldText, newText}]` edits. **Requires a prior `read_note` call** — hard-errors if the note has been modified since you last read it. |
+| `share_note(id, access)` | Set share access (`none`/`view`/`comment`/`edit`); returns the `/s/<shareId>` URL. |
+| `comment_on_note(id, quote, body)` | Add an anchored inline comment thread. |
+
+### Stale-read protection
+
+`edit_note` requires the agent to have called `read_note` first. If the note has changed between read and edit (e.g. another agent or a human edited it), the edit hard-errors with a "stale read" message instructing the agent to re-read. Within one MCP server process, a per-note mutex serializes mutating tool calls so concurrent same-server requests can't race.
+
+This protection is **best-effort** across processes: jot's server has no conditional-write endpoint, so a human or a second MCP server can still slip an edit in between this server's read and POST. For most agent workflows this is fine; for hard guarantees, add server-side `If-Unmodified-Since` semantics.
+
+`update_note` does NOT require a prior read — it's an explicit wholesale-replacement tool. Use `edit_note` for surgical changes, `update_note` when you intentionally want to replace fields.
+
+### Comment authorship
+
+Owner-side comments are attributed to the API key. To label MCP-originated comments distinctly, register a dedicated API key per agent (e.g. `claude-code`, `cursor`) in your jot admin and use that key in the MCP server's `JOT_INSTANCE`.
+
 ## Data
 
 ```
