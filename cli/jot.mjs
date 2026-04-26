@@ -63,11 +63,35 @@ if (command === "serve") {
 }
 
 if (command === "mcp") {
-  const { runMcp } = await import("./jot-mcp.mjs");
-  await runMcp();
-  // runMcp blocks until the stdio transport closes (or SIGINT/SIGTERM).
-  // Exit explicitly so Node doesn't warn about an unsettled top-level await
-  // when the parent disconnects the child mid-await.
+  const useHttp = args.includes("--http");
+  if (useHttp) {
+    const portArg = args.find((a) => a.startsWith("--port="));
+    let port = 3211;
+    if (portArg) {
+      const raw = portArg.slice("--port=".length);
+      if (!/^\d+$/.test(raw)) {
+        console.error(`Invalid --port value: ${portArg} (must be integer)`);
+        process.exit(1);
+      }
+      port = Number(raw);
+      if (port < 1 || port > 65535) {
+        console.error(`--port out of range: ${port} (must be 1..65535)`);
+        process.exit(1);
+      }
+    }
+    const baseUrl = process.env.JOT_INSTANCE_BASE_URL;
+    if (!baseUrl) {
+      console.error("HTTP mode requires JOT_INSTANCE_BASE_URL (e.g. https://jot.example.com).");
+      process.exit(1);
+    }
+    const { runMcpHttp } = await import("./jot-mcp.mjs");
+    await runMcpHttp({ port, baseUrl });
+  } else {
+    const { runMcp } = await import("./jot-mcp.mjs");
+    await runMcp();
+  }
+  // Both modes block until shutdown; exit explicitly so Node doesn't warn
+  // about an unsettled top-level await on abrupt-kill paths.
   process.exit(0);
 }
 
@@ -490,7 +514,8 @@ function printUsage() {
 
 Server:
   jot serve [--port=N] [--data=path]      Run the jot server
-  jot mcp                                  Run the MCP server (stdio; reads JOT_INSTANCE)
+  jot mcp                                  Run the MCP server over stdio (reads JOT_INSTANCE)
+  jot mcp --http [--port=3211]             Run the MCP server over Streamable HTTP (reads JOT_INSTANCE_BASE_URL)
 
 Instance management:
   jot register <name> <baseUrl> <token>   Register with API key (owner)
