@@ -145,9 +145,35 @@ For multiple jot instances, register multiple MCP servers (`jot-personal`, `jot-
 | `read_note(id)` | Read full markdown + threads. Records the note version for stale-read protection. |
 | `create_note(title, markdown)` | Create a note in one call. |
 | `update_note(id, {title?, markdown?, shareAccess?})` | Partial update — server merges only the fields you pass. |
-| `edit_note(id, edits[])` | Apply `[{oldText, newText}]` edits. **Requires a prior `read_note` call** — hard-errors if the note has been modified since you last read it. |
+| `edit_note(id, edits[])` | Apply `[{oldText, newText}]` edits. **Requires a prior `read_note` call** — hard-errors if the note has been modified since you last read it. **`oldText` is matched as a literal substring** of the source markdown, including formatting characters (backticks, asterisks, underscores). If you "see" `code` in a rendered view but write `code` without the backticks, the edit will fail with a hint. Re-read the raw markdown if working from a rendered view. |
 | `share_note(id, access)` | Set share access (`none`/`view`/`comment`/`edit`); returns the `/s/<shareId>` URL. |
 | `comment_on_note(id, quote, body)` | Add an anchored inline comment thread. |
+
+### Resources
+
+Each owned note is exposed as a read-only MCP resource at `jot://notes/<id>`. Clients with resource pickers (Claude Desktop, Cursor) let you `@`-attach a note to a chat — the markdown body and any inline comment threads are pulled into context with no tool call required.
+
+| URI scheme | Returns |
+|---|---|
+| `jot://notes/<id>` | Note's markdown body, with comment threads rendered as a `## Comments` section appended |
+
+When a note is read via `resources/read`, the MCP server records its `updatedAt` in the stale-read tracker — so attaching a note via the picker counts as a fresh read for subsequent `edit_note` calls. You don't have to ask the agent to "read it first."
+
+`resources/list` returns up to 200 notes per page with a `nextCursor` for pagination.
+
+**Transparency note:** the appended `## Comments` section includes thread author names — anyone who has commented on the note is named. This is the same data the v1 `read_note` tool already returns; mentioned here because resource attachment is a more user-facing surface and the inclusion is worth knowing about.
+
+### Prompts
+
+Three prompt templates ship in v2, surfaced by clients as discoverable commands (e.g. Claude Desktop's `/` menu).
+
+| Prompt | Args | Behavior |
+|---|---|---|
+| `summarize-note` | `id` | Produces a 2-3 paragraph TL;DR of the note. |
+| `review-note` | `id`, `focus?` | Reads the note, identifies the 3 most important weak points, and uses `comment_on_note` to leave inline annotations. Optionally focused on e.g. clarity / technical accuracy / tone. Falls back to inline findings if `comment_on_note` is unavailable. |
+| `extract-action-items` | `id`, `post_as_note?` | Returns a markdown checklist of action items. With `post_as_note="true"`, also creates a new note containing the checklist via `create_note`. |
+
+Argument validation is strict — note ids must match `/^[a-z0-9]+$/`, `post_as_note` accepts only the literal strings `"true"` or `"false"` (no silent treatment of `yes`/`1`/`TRUE`). Invalid args return MCP `-32602 InvalidParams`.
 
 ### Stale-read protection
 
