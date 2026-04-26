@@ -5,10 +5,18 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
+  ListPromptsRequestSchema,
+  GetPromptRequestSchema,
+  McpError,
+  ErrorCode,
 } from "@modelcontextprotocol/sdk/types.js";
 import { getInstance, request, isShareInstance } from "./lib.mjs";
 import { makeStaleTracker } from "./stale-tracker.mjs";
 import { makeNoteMutex } from "./note-mutex.mjs";
+import { makeResourceHandlers } from "./mcp-resources.mjs";
+import { listPrompts, getPrompt } from "./mcp-prompts.mjs";
 
 const log = (...a) => console.error("[jot-mcp]", ...a);
 
@@ -264,9 +272,20 @@ const tools = {
   },
 };
 
+const resources = makeResourceHandlers({
+  instance,
+  onNoteRead: (id, updatedAt) => stale.record(id, updatedAt),
+});
+
 const server = new Server(
-  { name: "jot", version: "0.2.0" },
-  { capabilities: { tools: {} } }
+  { name: "jot", version: "0.3.0" },
+  {
+    capabilities: {
+      tools: {},
+      resources: { subscribe: false, listChanged: false },
+      prompts: { listChanged: false },
+    },
+  }
 );
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
@@ -290,6 +309,41 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
     return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };
   } catch (e) {
     return { isError: true, content: [{ type: "text", text: e.message }] };
+  }
+});
+
+server.setRequestHandler(ListResourcesRequestSchema, async (req) => {
+  try {
+    return await resources.listResources(req.params);
+  } catch (e) {
+    log("listResources failed:", e.message);
+    throw e;
+  }
+});
+
+server.setRequestHandler(ReadResourceRequestSchema, async (req) => {
+  try {
+    return await resources.readResource(req.params);
+  } catch (e) {
+    if (e.code === "INVALID_URI") {
+      throw new McpError(ErrorCode.InvalidParams, e.message);
+    }
+    log("readResource failed:", e.message);
+    throw e;
+  }
+});
+
+server.setRequestHandler(ListPromptsRequestSchema, async () => listPrompts());
+
+server.setRequestHandler(GetPromptRequestSchema, async (req) => {
+  try {
+    return getPrompt(req.params);
+  } catch (e) {
+    if (e.code === "INVALID_PARAMS") {
+      throw new McpError(ErrorCode.InvalidParams, e.message);
+    }
+    log("getPrompt failed:", e.message);
+    throw e;
   }
 });
 
