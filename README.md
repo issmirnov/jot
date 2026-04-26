@@ -187,6 +187,61 @@ This protection is **best-effort** across processes: jot's server has no conditi
 
 Owner-side comments are attributed to the API key. To label MCP-originated comments distinctly, register a dedicated API key per agent (e.g. `claude-code`, `cursor`) in your jot admin and use that key in the MCP server's `JOT_INSTANCE`.
 
+### Remote MCP (Streamable HTTP)
+
+Run jot-mcp as a network service so any MCP client (local or remote) can connect over HTTP:
+
+```bash
+JOT_INSTANCE_BASE_URL=https://jot.example.com \
+  jot mcp --http --port=3211
+```
+
+Endpoints:
+- `POST /mcp` — Streamable HTTP transport (JSON responses; `enableJsonResponse: true`)
+- `GET /health` — process up
+- `GET /ready` — process up AND can reach jot's `/health`
+
+**Auth:** every request must carry `Authorization: Bearer <jot-api-key>`. The MCP server does NOT hold its own auth secret — it passes the token through to jot's REST API per request. A bad token causes the first jot call to return 401, surfaced as an MCP tool error. Same key works for jot's UI, the CLI, and remote MCP. Rotate the key in jot's admin and clients pick it up on the next request.
+
+**Per-request server:** SDK 1.x rejects reconnecting a Protocol, so HTTP mode constructs a fresh `Server + StreamableHTTPServerTransport` per request. The stale-read tracker and per-note mutex are shared at process scope but keyed by `tokenHash` (sha256 prefix of the bearer), so different bearer tokens get isolated tracker state — agent A's `read_note` does not authorize agent B's `edit_note` even when they target the same note id.
+
+**Client compatibility:**
+
+| Client | Works? | How |
+|---|---|---|
+| **Claude Code** | ✅ | `claude mcp add <name> --transport http <url> --header "Authorization: Bearer <token>"` |
+| **Claude Desktop** | ❌ for internal-only URLs | Desktop's remote-connector traffic originates from Anthropic infra, can't reach internal `.k.s`/VPN-only URLs. Use the local stdio mode (`jot mcp`) for Desktop. |
+| **Cursor / Continue / other MCP clients** | ✅ if they support Streamable HTTP transport | Standard transport; `Mcp-Protocol-Version` header negotiation per spec |
+| **curl / scripts** | ✅ | Standard JSON-RPC POST to `/mcp` with bearer header and `Accept: application/json, text/event-stream` |
+
+**Single replica:** the in-memory stale tracker and mutex assume a single process. Run `replicas: 1` with `Recreate` strategy (rolling updates would briefly run two pods with split tracker state). For HA with multiple replicas, externalize state to Redis — out of scope.
+
+**Kubernetes deploy reference:** the `command:` override pattern for using the published image as a jot-mcp service:
+
+```yaml
+spec:
+  template:
+    spec:
+      containers:
+        - name: jot-mcp
+          image: ghcr.io/issmirnov/jot:v0.4.0
+          command: ["node", "cli/jot.mjs", "mcp", "--http", "--port=3211"]
+          env:
+            - name: JOT_INSTANCE_BASE_URL
+              value: "http://jot.jot.svc.cluster.local"  # or public URL
+          ports:
+            - name: http
+              containerPort: 3211
+          readinessProbe:
+            httpGet: { path: /ready, port: 3211 }
+          livenessProbe:
+            httpGet: { path: /health, port: 3211 }
+          lifecycle:
+            preStop:
+              exec: { command: ["sleep", "5"] }
+      terminationGracePeriodSeconds: 30
+```
+
 ## Data
 
 ```
