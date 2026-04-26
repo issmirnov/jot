@@ -154,7 +154,7 @@ const tools = {
 
   edit_note: {
     description:
-      "Apply [{oldText, newText}] edits to a note. REQUIRES a prior read_note call — hard-errors if the note has been modified since you last read it. Use this for surgical edits; use update_note for wholesale rewrites. Note: protection is best-effort across processes; same-process MCP calls are serialized via per-note mutex.",
+      "Apply [{oldText, newText}] edits to a note. REQUIRES a prior read_note call — hard-errors if the note has been modified since you last read it. Use this for surgical edits; use update_note for wholesale rewrites. IMPORTANT: oldText is matched as a LITERAL SUBSTRING of the note's source markdown — markdown formatting characters (backticks, asterisks, underscores) must be present in oldText exactly as they appear in the source. If you 'see' `code` in a rendered view but write 'code' in oldText, the edit will fail. Re-read the note's raw markdown if unsure. Note: stale-read protection is best-effort across processes; same-process MCP calls are serialized via per-note mutex.",
     inputSchema: {
       type: "object",
       properties: {
@@ -180,12 +180,26 @@ const tools = {
       mu.withNote(id, async () => {
         const cur = await request(instance(), "GET", `/api/notes/${encodeURIComponent(id)}`);
         stale.require(id, cur.note.updatedAt);
-        const result = await request(
-          instance(),
-          "POST",
-          `/api/notes/${encodeURIComponent(id)}/edit`,
-          { edits }
-        );
+        let result;
+        try {
+          result = await request(
+            instance(),
+            "POST",
+            `/api/notes/${encodeURIComponent(id)}/edit`,
+            { edits }
+          );
+        } catch (e) {
+          if (e.status === 400 && /oldText not found/i.test(e.message)) {
+            throw new Error(
+              `${e.message}\n\nHint: oldText is matched as a literal substring of ` +
+                `the note's source markdown. Markdown formatting characters ` +
+                `(backticks, asterisks, underscores) must appear in oldText ` +
+                `exactly as they do in the source. Re-read the note to see the raw ` +
+                `markdown if you've been working from a rendered view.`
+            );
+          }
+          throw e;
+        }
         const fresh = await request(instance(), "GET", `/api/notes/${encodeURIComponent(id)}`);
         stale.record(id, fresh.note.updatedAt);
         return {
