@@ -282,6 +282,20 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 export async function runMcp() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  // server.connect() resolves after handshake setup, NOT when the
+  // transport closes. Block here until any of: stdin EOF, SIGINT,
+  // or SIGTERM, so the process stays alive while serving requests
+  // and shuts down cleanly without "unsettled top-level await" warnings.
+  await new Promise((resolve) => {
+    const finish = () => resolve();
+    const prev = transport.onclose;
+    transport.onclose = (...args) => {
+      if (typeof prev === "function") prev(...args);
+      finish();
+    };
+    process.once("SIGINT", finish);
+    process.once("SIGTERM", finish);
+  });
 }
 
 const isDirectRun = import.meta.url === `file://${process.argv[1]}`;

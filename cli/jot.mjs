@@ -62,6 +62,15 @@ if (command === "serve") {
   process.exit(0);
 }
 
+if (command === "mcp") {
+  const { runMcp } = await import("./jot-mcp.mjs");
+  await runMcp();
+  // runMcp blocks until the stdio transport closes (or SIGINT/SIGTERM).
+  // Exit explicitly so Node doesn't warn about an unsettled top-level await
+  // when the parent disconnects the child mid-await.
+  process.exit(0);
+}
+
 if (command === "register") {
   const [, name, urlOrBase, token] = args;
   if (!name || !urlOrBase) {
@@ -481,6 +490,7 @@ function printUsage() {
 
 Server:
   jot serve [--port=N] [--data=path]      Run the jot server
+  jot mcp                                  Run the MCP server (stdio; reads JOT_INSTANCE)
 
 Instance management:
   jot register <name> <baseUrl> <token>   Register with API key (owner)
