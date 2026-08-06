@@ -48,6 +48,34 @@ async function callErr(name, args = {}) {
   return out.content[0].text;
 }
 
+// --- unit: static tool-schema invariants (no live jot instance needed) ---
+
+test("every tool input-schema property declares a JSON-Schema type", async () => {
+  const { buildTools } = await import("../cli/jot-mcp.mjs");
+  // Handlers are never invoked here, so stub deps are sufficient to build the
+  // schema table.
+  const tools = buildTools({
+    instanceAccessor: () => ({ baseUrl: "http://example.test" }),
+    stale: { record() {}, forget() {}, require() {} },
+    mu: { withNote: (_id, fn) => fn() },
+    scope: undefined,
+  });
+  const offenders = [];
+  for (const [name, t] of Object.entries(tools)) {
+    for (const [prop, schema] of Object.entries(t.inputSchema?.properties ?? {})) {
+      if (typeof schema.type !== "string") offenders.push(`${name}.${prop}`);
+    }
+  }
+  // A property with `enum` but no `type` is valid JSON Schema but is rejected or
+  // degraded by strict tool-schema validators (e.g. Gemini function-calling,
+  // some MCP client SDKs). Every param must carry an explicit type.
+  assert.deepEqual(
+    offenders,
+    [],
+    `tool params missing a JSON-Schema "type": ${offenders.join(", ")}`
+  );
+});
+
 test("integration: tools/list returns the 7 v1 tools", { skip: !ENABLED }, async () => {
   const r = await client.listTools();
   const names = r.tools.map((t) => t.name).sort();
