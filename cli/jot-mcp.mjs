@@ -52,7 +52,7 @@ function ensureStdioInstanceConfigured() {
  * `scope` (passed as 3rd arg to stale.* calls so HTTP mode isolates
  * trackers per token).
  */
-function buildTools({ instanceAccessor, stale, mu, scope }) {
+export function buildTools({ instanceAccessor, stale, mu, scope }) {
   const baseUrl = () => instanceAccessor().baseUrl.replace(/\/$/, "");
   return {
     list_notes: {
@@ -130,7 +130,7 @@ function buildTools({ instanceAccessor, stale, mu, scope }) {
           id: { type: "string" },
           title: { type: "string" },
           markdown: { type: "string" },
-          shareAccess: { enum: ["none", "view", "comment", "edit"] },
+          shareAccess: { type: "string", enum: ["none", "view", "comment", "edit"] },
         },
         required: ["id"],
         additionalProperties: false,
@@ -231,7 +231,7 @@ function buildTools({ instanceAccessor, stale, mu, scope }) {
         type: "object",
         properties: {
           id: { type: "string" },
-          access: { enum: ["none", "view", "comment", "edit"] },
+          access: { type: "string", enum: ["none", "view", "comment", "edit"] },
         },
         required: ["id", "access"],
         additionalProperties: false,
