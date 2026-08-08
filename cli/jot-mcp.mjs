@@ -287,7 +287,7 @@ export function buildTools({ instanceAccessor, stale, mu, scope }) {
  */
 export function createMcpServer({ instanceAccessor, stale, mu, scope }) {
   const server = new Server(
-    { name: "jot", version: "0.4.0" },
+    { name: "jot", version: "0.4.1" },
     {
       capabilities: {
         tools: {},
